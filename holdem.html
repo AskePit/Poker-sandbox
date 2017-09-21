@@ -1,0 +1,337 @@
+<style>
+body {
+	text-align: center;
+}
+
+header {
+	height: 35vh;
+}
+
+.card {
+	display: inline-block;
+	background-image: url('deck.jpg');
+	width:  73.15px;
+	height: 98.5px;
+	background-position: 0px 0px;
+}
+</style>
+
+<body>
+	<header></header>
+	<div id="board" class="centered"></div>
+	<p id="label"></p>
+</body>
+
+<script>
+const Suit = {
+	Clubs: 0,
+	Hearts: 1,
+	Spades: 2,
+	Diamonds: 3,
+	
+	Count: 4,
+}
+
+const Rank = {
+	Two: 0,
+	Three: 1,
+	Four: 2,
+	Five: 3,
+	Six: 4,
+	Seven: 5,
+	Eight: 6,
+	Nine: 7,
+	Ten: 8,
+	Jack: 9,
+	Queen: 10,
+	King: 11,
+	Ace: 12,
+	
+	Count: 13,
+}
+
+const CombinationLevel = {
+	HighCard: 0,
+	Pair: 1,
+	TwoPairs: 2,
+	ThreeOfAKind: 3,
+	Straight: 4,
+	Flush: 5,
+	FullHouse: 6,
+	FourOfAKind: 7,
+	StraightFlush: 8,
+	RoyalFlush: 9,
+	
+	Count: 10,
+}
+
+function levelToString(level) {
+	switch(level) {
+		case CombinationLevel.HighCard: return ''
+		case CombinationLevel.Pair: return 'Pair'
+		case CombinationLevel.TwoPairs: return 'Two Pairs'
+		case CombinationLevel.ThreeOfAKind: return 'Three of a Kind'
+		case CombinationLevel.Straight: return 'Straight'
+		case CombinationLevel.Flush: return 'Flush'
+		case CombinationLevel.FullHouse: return 'Full House'
+		case CombinationLevel.FourOfAKind: return 'Four of a Kind'
+		case CombinationLevel.StraightFlush: return 'Straight Flush'
+		case CombinationLevel.RoyalFlush: return 'Royal Flush'
+	}
+}
+
+class Card {
+	constructor(rank, suit) {
+		this.rank = rank
+		this.suit = suit
+		
+		this.div = document.createElement('div')
+		this.div.className = 'card'
+		this.div.style.backgroundPosition = this.spritePos()
+	}
+	
+	spritePos() {
+		let r = 0
+		if(r < Rank.Ace) {
+			r = this.rank+1
+		}
+		return (r * (-951/Rank.Count)).toString() + 'px ' +  this.suit * (-394/Suit.Count) + 'px'
+	}
+}
+
+function shuffle_array(a) {
+    for (let i = a.length; i; i--) {
+        let j = Math.floor(Math.random() * i);
+        [a[i - 1], a[j]] = [a[j], a[i - 1]];
+    }
+}
+
+const SortFlags = {
+	Ascending: 1,
+	Descending: 2,
+	Rank: 4,
+	Suit: 8,
+}
+
+// Array that owns cards
+class Cards extends Array {
+	constructor() {
+		super()
+	}
+	
+	clear() {
+		this.splice(0, this.length)
+	}
+	
+	shuffle() {
+		shuffle_array(this)
+	}
+	
+	pushFrom(cards) {
+		this.push(cards.pop())
+	}
+	
+	popTo(cards) {
+		cards.push(this.pop())
+	}
+	
+	sort(flags) {
+		let cmp = (a, b) => { return a.rank - b.rank }
+		
+		if(flags & SortFlags.Suit) {
+			cmp = (a, b) => {
+				let s = a.suit - b.suit
+				if(s === 0 && flags & SortFlags.Rank) {
+					let r = a.rank - b.rank
+					return flags & SortFlags.Descending ? -r : r
+				}
+				return flags & SortFlags.Descending ? -s : s
+			}
+		} else if(flags & SortFlags.Rank) {
+			cmp = (a, b) => {
+				let r = a.rank - b.rank
+				return flags & SortFlags.Descending ? -r : r
+			}
+		}
+		
+		super.sort(cmp)
+	}
+}
+
+// Array of card references
+class RefCards extends Array {
+	constructor() {
+		super()
+	}
+	
+	clear() {
+		this.splice(0, this.length)
+	}
+	
+	shuffle() {
+		shuffle_array(this)
+	}
+		
+	sort(flags) {
+		let cmp = (a, b) => { return a.rank - b.rank }
+		
+		if(flags & SortFlags.Suit) {
+			cmp = (a, b) => {
+				let s = a.suit - b.suit
+				if(s === 0 && flags & SortFlags.Rank) {
+					let r = a.rank - b.rank
+					return flags & SortFlags.Descending ? -r : r
+				}
+				return flags & SortFlags.Descending ? -s : s
+			}
+		} else if(flags & SortFlags.Rank) {
+			cmp = (a, b) => {
+				let r = a.rank - b.rank
+				return flags & SortFlags.Descending ? -r : r
+			}
+		}
+		
+		super.sort(cmp)
+	}
+}
+
+function cloneArray(array) {
+	let newArray = []
+	for(const e of array) {
+		newObj = JSON.parse(JSON.stringify(e))
+		newArray.push(newObj)
+	}
+	
+	return newArray
+}
+
+class Combination {
+	constructor(hand) {
+		this.cards = new RefCards
+		this.level = CombinationLevel.HighCard
+		
+		const flash = this._checkFlush()
+		const straight = this._checkStraight()
+		const pairs = this._checkPairs()
+		
+		if(straight.res && flash && straight.royal) this.level = CombinationLevel.RoyalFlush
+		else if(straight.res && flash)              this.level = CombinationLevel.StraightFlush
+		else if(pairs.maj === 4)                    this.level = CombinationLevel.FourOfAKind
+		else if(pairs.maj === 3 && pairs.min === 2) this.level = CombinationLevel.FullHouse
+		else if(flash)                              this.level = CombinationLevel.Flush
+		else if(straight.res)                       this.level = CombinationLevel.Straight
+		else if(pairs.maj === 3)                    this.level = CombinationLevel.ThreeOfAKind
+		else if(pairs.maj === 2 && pairs.min === 2) this.level = CombinationLevel.TwoPairs
+		else if(pairs.maj === 2)                    this.level = CombinationLevel.Pair
+	}
+	
+	_checkFlush() {
+		let suitsCount = [0, 0, 0, 0]
+		for(const card of hand) {
+			++suitsCount[card.suit]
+		}
+		
+		for(let suitCount of suitsCount) {
+			if(suitCount >= 5) {
+				return true
+			}
+		}
+		
+		return false
+	}
+
+	_checkStraight() {
+		let ranks = []
+		for(const card of hand) {
+			if(ranks.indexOf(card.rank) === -1) {
+				ranks.push(card.rank)
+				if(card.rank === Rank.Ace) {
+					ranks.push(-1)
+				}
+			}
+		}
+		
+		ranks.sort(function(a,b){return b-a})
+		
+		let res = 0
+		let prev = ranks[0] + 1
+		let royal = false
+		for(const rank of ranks) {
+			res = (prev - rank === 1) ? res+1 : 1
+			if(res === 1) {
+				royal = rank === Rank.King + 1
+			}
+			prev = rank
+			
+			if(res === 5) {
+				return {res: true, royal: royal}
+			}
+		}
+		
+		return {res: false, royal: false}
+	}
+
+	_checkPairs() {
+		let ranksCount = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+		for(const card of hand) {
+			++ranksCount[card.rank]
+		}
+		
+		ranksCount.sort(function(a, b){return b-a})	
+		return {maj: ranksCount[0], min: ranksCount[1]}
+	}
+	
+	getLevel() {
+		return this.level
+	}
+	
+	cards() {
+		return this.cards
+	}
+}
+
+class Deck extends Cards {
+	constructor() {
+		super()
+		
+		const DECKS_COUNT = 6
+		for(let n = 0; n<DECKS_COUNT; ++n) { // decks
+			for(let rank = 0; rank<Rank.Count; ++rank) { // ranks
+				for(let suit = 0; suit<Suit.Count; ++suit) { // suits
+					this.push(new Card(rank, suit))
+				}
+			}
+		}
+		
+		this.shuffle()
+	}
+}
+
+let boardDiv = document.getElementById('board')
+let label = document.getElementById('label')
+
+let hand = new Cards
+let deck = new Deck
+
+function genHand() {
+	hand.clear()
+	for(let i = 0; i<7; ++i) {
+		hand.pushFrom(deck)
+	}
+}
+
+function render() {
+	//hand.sort(SortFlags.Ascending | SortFlags.Rank)
+	for(const card of hand) {
+		boardDiv.appendChild(card.div)
+	}
+	
+	const c = new Combination(hand)
+	label.innerHTML = levelToString(c.getLevel())
+}
+
+genHand()
+render()
+
+</script>
+
